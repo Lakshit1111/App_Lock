@@ -3,7 +3,7 @@ package com.applock
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity // Changed from ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
@@ -17,7 +17,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 
-class LockScreenActivity : ComponentActivity() {
+// CHANGED: Inherit from AppCompatActivity instead of ComponentActivity
+class LockScreenActivity : AppCompatActivity() {
     private lateinit var lockedPackage: String
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -52,8 +53,10 @@ class LockScreenActivity : ComponentActivity() {
                 }
                 override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
                     super.onAuthenticationError(errorCode, errString)
-                    if (errorCode == BiometricPrompt.ERROR_USER_CANCELED || errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
-                         goHome() // If they cancel, go home
+                    // If user cancels or clicks negative button, go home
+                    if (errorCode == BiometricPrompt.ERROR_USER_CANCELED || 
+                        errorCode == BiometricPrompt.ERROR_NEGATIVE_BUTTON) {
+                         goHome()
                     }
                 }
             })
