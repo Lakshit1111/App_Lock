@@ -19,11 +19,13 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Create gradle wrapper
-      run: |
-        gradle wrapper --gradle-version 8.2
+    # This step is the key fix. It installs Gradle 8.5.
+    - name: Setup Gradle
+      uses: gradle/actions/setup-gradle@v3
+      with:
+        gradle-version: '8.5'
 
-    # Note: We use 'gradle' directly to avoid needing the gradlew script
+    # We use 'gradle' command directly (not ./gradlew)
     - name: Build with Gradle
       run: gradle assembleDebug --no-daemon
 
