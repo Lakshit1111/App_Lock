@@ -19,6 +19,10 @@ jobs:
         java-version: '17'
         distribution: 'temurin'
 
+    - name: Create gradle wrapper
+      run: |
+        gradle wrapper --gradle-version 8.2
+
     # Note: We use 'gradle' directly to avoid needing the gradlew script
     - name: Build with Gradle
       run: gradle assembleDebug --no-daemon
