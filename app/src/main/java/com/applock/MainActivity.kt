@@ -4,10 +4,11 @@ import android.app.AppOpsManager
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import androidx.activity.ComponentActivity
+import androidx.appcompat.app.AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -32,7 +33,7 @@ data class AppInfo(
     var isLocked: Boolean = false
 )
 
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -44,7 +45,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (checkUsagePermission(this)) {
+        // Start service only if BOTH permissions are granted
+        if (checkUsagePermission(this) && Settings.canDrawOverlays(this)) {
             val intent = Intent(this, AppLockService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 startForegroundService(intent)
@@ -61,11 +63,13 @@ fun AppLockScreen() {
     val context = LocalContext.current
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var hasUsagePermission by remember { mutableStateOf(checkUsagePermission(context)) }
+    var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
+    
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
 
-    LaunchedEffect(hasUsagePermission) {
-        if (hasUsagePermission) {
+    LaunchedEffect(hasUsagePermission, hasOverlayPermission) {
+        if (hasUsagePermission && hasOverlayPermission) {
             installedApps = withContext(Dispatchers.IO) {
                 getInstalledApps(context, prefs)
             }
@@ -87,10 +91,16 @@ fun AppLockScreen() {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (!hasUsagePermission) {
+            if (!hasUsagePermission || !hasOverlayPermission) {
                 PermissionRequestCard(
-                    onRequestPermission = { requestUsagePermission(context) },
-                    onCheckAgain = { hasUsagePermission = checkUsagePermission(context) }
+                    hasUsage = hasUsagePermission,
+                    hasOverlay = hasOverlayPermission,
+                    onRequestUsage = { requestUsagePermission(context) },
+                    onRequestOverlay = { requestOverlayPermission(context) },
+                    onCheckAgain = { 
+                        hasUsagePermission = checkUsagePermission(context)
+                        hasOverlayPermission = Settings.canDrawOverlays(context)
+                    }
                 )
             } else {
                 if (installedApps.isEmpty()) {
@@ -103,7 +113,6 @@ fun AppLockScreen() {
                             AppLockItem(app = app, onToggleLock = { isLocked ->
                                 scope.launch(Dispatchers.IO) {
                                     prefs.edit().putBoolean(app.packageName, isLocked).apply()
-                                    // Update local state UI
                                     val newList = installedApps.toMutableList()
                                     val index = newList.indexOfFirst { it.packageName == app.packageName }
                                     if(index != -1) {
@@ -121,19 +130,35 @@ fun AppLockScreen() {
 }
 
 @Composable
-fun PermissionRequestCard(onRequestPermission: () -> Unit, onCheckAgain: () -> Unit) {
+fun PermissionRequestCard(
+    hasUsage: Boolean,
+    hasOverlay: Boolean,
+    onRequestUsage: () -> Unit,
+    onRequestOverlay: () -> Unit,
+    onCheckAgain: () -> Unit
+) {
     Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
         Column(
             modifier = Modifier.padding(16.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text("Permission Required", style = MaterialTheme.typography.headlineSmall)
-            Spacer(modifier = Modifier.height(8.dp))
-            Text("Grant usage access to detect when apps are opened.")
+            Text("Permissions Required", style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.height(16.dp))
-            Button(onClick = onRequestPermission) { Text("Grant Permission") }
-            Spacer(modifier = Modifier.height(8.dp))
-            TextButton(onClick = onCheckAgain) { Text("I have granted it") }
+            
+            if (!hasUsage) {
+                Button(onClick = onRequestUsage) { Text("1. Grant Usage Access") }
+                Text("Needed to detect running apps", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+            
+            if (!hasOverlay) {
+                Button(onClick = onRequestOverlay) { Text("2. Grant Overlay Permission") }
+                Text("Needed to show lock screen", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+            TextButton(onClick = onCheckAgain) { Text("I have granted permissions") }
         }
     }
 }
@@ -169,6 +194,11 @@ fun checkUsagePermission(context: Context): Boolean {
 
 fun requestUsagePermission(context: Context) {
     context.startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
+}
+
+fun requestOverlayPermission(context: Context) {
+    val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+    context.startActivity(intent)
 }
 
 fun getInstalledApps(context: Context, prefs: android.content.SharedPreferences): List<AppInfo> {
