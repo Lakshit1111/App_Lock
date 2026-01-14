@@ -5,6 +5,7 @@ import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.IBinder
 import androidx.core.app.NotificationCompat
@@ -16,11 +17,16 @@ class AppLockService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        startForeground(1, createNotification())
-        startMonitoring()
+        try {
+            startForegroundServiceStrict()
+            startMonitoring()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            stopSelf() // If it fails, stop safely instead of crashing
+        }
     }
 
-    private fun createNotification(): Notification {
+    private fun startForegroundServiceStrict() {
         val channelId = "app_lock_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -30,22 +36,39 @@ class AppLockService : Service() {
             val nm = getSystemService(NotificationManager::class.java)
             nm.createNotificationChannel(channel)
         }
-        return NotificationCompat.Builder(this, channelId)
+
+        val notification = NotificationCompat.Builder(this, channelId)
             .setContentTitle("App Lock Active")
+            .setContentText("Protecting your apps")
             .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setPriority(NotificationCompat.PRIORITY_MIN)
             .build()
+
+        // ANDROID 14 FIX: Explicitly state the service type
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+        } else {
+            startForeground(1, notification)
+        }
     }
 
     private fun startMonitoring() {
         scope.launch {
             while (isActive) {
-                checkForegroundApp()
-                delay(300) // Check every 300ms
+                try {
+                    checkForegroundApp()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                delay(300)
             }
         }
     }
 
     private fun checkForegroundApp() {
+        // Double check permissions to prevent crash
+        if (!hasUsageStatsPermission()) return
+
         val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
         val time = System.currentTimeMillis()
         val events = usm.queryEvents(time - 1000, time)
@@ -62,15 +85,33 @@ class AppLockService : Service() {
         if (currentApp.isNotEmpty() && currentApp != lastApp && currentApp != packageName) {
             val prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
             if (prefs.getBoolean(currentApp, false)) {
-                // IMPORTANT: Launch Lock Screen
-                val intent = Intent(this, LockScreenActivity::class.java).apply {
-                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                    putExtra("locked_package", currentApp)
-                }
-                startActivity(intent)
+                openLockScreen(currentApp)
             }
             lastApp = currentApp
         }
+    }
+
+    private fun openLockScreen(packageName: String) {
+        try {
+            val intent = Intent(this, LockScreenActivity::class.java).apply {
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+                putExtra("locked_package", packageName)
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            // This prevents crash if "Display over other apps" is missing
+            e.printStackTrace()
+        }
+    }
+
+    private fun hasUsageStatsPermission(): Boolean {
+        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
+        val mode = appOps.checkOpNoThrow(
+            AppOpsManager.OPSTR_GET_USAGE_STATS,
+            android.os.Process.myUid(),
+            packageName
+        )
+        return mode == AppOpsManager.MODE_ALLOWED
     }
 
     override fun onDestroy() {
