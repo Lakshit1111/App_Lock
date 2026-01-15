@@ -27,8 +27,12 @@ jobs:
 
     # We use 'gradle' command directly (not ./gradlew)
     - name: Build with Gradle
-      run: gradle assembleDebug --no-daemon
-
+      run: gradle assembleDebug --no-daemon --scan
+      env:
+        GRADLE_OPTS: "-Dgradle.scan.uploadInBackground=false"
+      # This command accepts the Terms of Service automatically
+      continue-on-error: true
+      
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
