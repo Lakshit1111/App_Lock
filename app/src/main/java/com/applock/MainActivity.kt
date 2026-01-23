@@ -8,7 +8,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
-import androidx.appcompat.app.AppCompatActivity
+import androidx.activity.ComponentActivity // Changed back from AppCompatActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -33,7 +33,8 @@ data class AppInfo(
     var isLocked: Boolean = false
 )
 
-class MainActivity : AppCompatActivity() {
+// FIX 1: Reverted to ComponentActivity to prevent Theme crashes
+class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
@@ -64,7 +65,7 @@ fun AppLockScreen() {
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var hasUsagePermission by remember { mutableStateOf(checkUsagePermission(context)) }
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
-    
+
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
 
@@ -97,7 +98,7 @@ fun AppLockScreen() {
                     hasOverlay = hasOverlayPermission,
                     onRequestUsage = { requestUsagePermission(context) },
                     onRequestOverlay = { requestOverlayPermission(context) },
-                    onCheckAgain = { 
+                    onCheckAgain = {
                         hasUsagePermission = checkUsagePermission(context)
                         hasOverlayPermission = Settings.canDrawOverlays(context)
                     }
@@ -113,9 +114,11 @@ fun AppLockScreen() {
                             AppLockItem(app = app, onToggleLock = { isLocked ->
                                 scope.launch(Dispatchers.IO) {
                                     prefs.edit().putBoolean(app.packageName, isLocked).apply()
+
+                                    // Update local state UI
                                     val newList = installedApps.toMutableList()
                                     val index = newList.indexOfFirst { it.packageName == app.packageName }
-                                    if(index != -1) {
+                                    if (index != -1) {
                                         newList[index] = newList[index].copy(isLocked = isLocked)
                                         installedApps = newList
                                     }
@@ -143,14 +146,15 @@ fun PermissionRequestCard(
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             Text("Permissions Required", style = MaterialTheme.typography.headlineSmall)
+
             Spacer(modifier = Modifier.height(16.dp))
-            
+
             if (!hasUsage) {
                 Button(onClick = onRequestUsage) { Text("1. Grant Usage Access") }
                 Text("Needed to detect running apps", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
             }
-            
+
             if (!hasOverlay) {
                 Button(onClick = onRequestOverlay) { Text("2. Grant Overlay Permission") }
                 Text("Needed to show lock screen", style = MaterialTheme.typography.bodySmall)
@@ -198,6 +202,8 @@ fun requestUsagePermission(context: Context) {
 
 fun requestOverlayPermission(context: Context) {
     val intent = Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:${context.packageName}"))
+    // Adding New Task flag is safer when context type is uncertain, though usually optional in Activity context
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) 
     context.startActivity(intent)
 }
 
@@ -214,4 +220,4 @@ fun getInstalledApps(context: Context, prefs: android.content.SharedPreferences)
             prefs.getBoolean(it.packageName, false)
         )
     }.sortedBy { it.appName }
-}
+} // FIX 2: Added the missing closing brace here
