@@ -1,123 +1,103 @@
 package com.applock
 
-import android.app.*
-import android.app.usage.UsageEvents
-import android.app.usage.UsageStatsManager
+import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
-import android.os.Build
-import android.os.IBinder
-import androidx.core.app.NotificationCompat
-import kotlinx.coroutines.*
+import android.content.SharedPreferences
+import android.view.accessibility.AccessibilityEvent
 
-class AppLockService : Service() {
-    private val scope = CoroutineScope(Dispatchers.Default + Job())
-    private var lastApp = ""
+class AppLockService : AccessibilityService() {
 
-    override fun onCreate() {
-        super.onCreate()
-        try {
-            startForegroundServiceStrict()
-            startMonitoring()
-        } catch (e: Exception) {
-            e.printStackTrace()
-            stopSelf() // If it fails, stop safely instead of crashing
+    private var lastPackageName = ""
+    
+    // 1. The Cache: A list of locked apps kept in memory for instant access
+    private val lockedAppsCache = mutableSetOf<String>()
+    
+    private lateinit var prefs: SharedPreferences
+    private lateinit var prefsListener: SharedPreferences.OnSharedPreferenceChangeListener
+
+    override fun onServiceConnected() {
+        super.onServiceConnected()
+        prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
+
+        // 2. Initial Load: Read database once when service starts
+        updateCompleteCache()
+
+        // 3. The Notification Listener: 
+        // When you change settings in MainActivity, this listener fires specifically 
+        // to update our memory cache. No need to re-read the whole database.
+        prefsListener = SharedPreferences.OnSharedPreferenceChangeListener { sharedPreferences, key ->
+            if (key != null) {
+                updateSingleAppInCache(key)
+            }
         }
+        prefs.registerOnSharedPreferenceChangeListener(prefsListener)
     }
 
-    private fun startForegroundServiceStrict() {
-        val channelId = "app_lock_channel"
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                channelId, "App Lock Service",
-                NotificationManager.IMPORTANCE_LOW
-            )
-            val nm = getSystemService(NotificationManager::class.java)
-            nm.createNotificationChannel(channel)
-        }
-
-        val notification = NotificationCompat.Builder(this, channelId)
-            .setContentTitle("App Lock Active")
-            .setContentText("Protecting your apps")
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
-            .setPriority(NotificationCompat.PRIORITY_MIN)
-            .build()
-
-        // ANDROID 14 FIX: Explicitly state the service type
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
+    /**
+     * Reads the specific change and updates only that entry in our memory list.
+     */
+    private fun updateSingleAppInCache(packageName: String) {
+        val isLocked = prefs.getBoolean(packageName, false)
+        if (isLocked) {
+            lockedAppsCache.add(packageName)
         } else {
-            startForeground(1, notification)
+            lockedAppsCache.remove(packageName)
         }
     }
 
-    private fun startMonitoring() {
-        scope.launch {
-            while (isActive) {
-                try {
-                    checkForegroundApp()
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                }
-                delay(300)
+    /**
+     * Reads all prefs to build the initial cache.
+     */
+    private fun updateCompleteCache() {
+        lockedAppsCache.clear()
+        val allEntries = prefs.all
+        for ((key, value) in allEntries) {
+            // If the value is 'true', add it to our locked list
+            if (value is Boolean && value == true) {
+                lockedAppsCache.add(key)
             }
         }
     }
 
-    private fun checkForegroundApp() {
-        // Double check permissions to prevent crash
-        if (!hasUsageStatsPermission()) return
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        // We only care if the window state changed (an app was opened/switched)
+        if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
+            val packageName = event.packageName?.toString() ?: return
 
-        val usm = getSystemService(Context.USAGE_STATS_SERVICE) as UsageStatsManager
-        val time = System.currentTimeMillis()
-        val events = usm.queryEvents(time - 1000, time)
-        val event = UsageEvents.Event()
-        
-        var currentApp = ""
-        while (events.hasNextEvent()) {
-            events.getNextEvent(event)
-            if (event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND) {
-                currentApp = event.packageName
+            // Prevent infinite loop by ignoring our own app
+            if (packageName == this.packageName) return
+
+            // Optimization: Don't re-check if we are still on the same app
+            if (packageName == lastPackageName) return
+
+            lastPackageName = packageName
+
+            // 4. The Optimized Check:
+            // We check the 'lockedAppsCache' (Memory) instead of 'prefs' (Database).
+            if (lockedAppsCache.contains(packageName)) {
+                showLockScreen(packageName)
             }
         }
+    }
 
-        if (currentApp.isNotEmpty() && currentApp != lastApp && currentApp != packageName) {
-            val prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
-            if (prefs.getBoolean(currentApp, false)) {
-                openLockScreen(currentApp)
-            }
-            lastApp = currentApp
+    private fun showLockScreen(packageName: String) {
+        val intent = Intent(this, LockScreenActivity::class.java).apply {
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            putExtra("locked_package", packageName)
         }
+        startActivity(intent)
     }
 
-    private fun openLockScreen(packageName: String) {
-        try {
-            val intent = Intent(this, LockScreenActivity::class.java).apply {
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                putExtra("locked_package", packageName)
-            }
-            startActivity(intent)
-        } catch (e: Exception) {
-            // This prevents crash if "Display over other apps" is missing
-            e.printStackTrace()
+    override fun onUnbind(intent: Intent?): Boolean {
+        // Clean up the listener to prevent memory leaks
+        if (::prefs.isInitialized) {
+            prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         }
+        return super.onUnbind(intent)
     }
 
-    private fun hasUsageStatsPermission(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.checkOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            android.os.Process.myUid(),
-            packageName
-        )
-        return mode == AppOpsManager.MODE_ALLOWED
+    override fun onInterrupt() {
+        // Required method
     }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        scope.cancel()
-    }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 }
