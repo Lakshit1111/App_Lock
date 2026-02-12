@@ -29,7 +29,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-// Re-using your data class
 data class AppInfo(
     val packageName: String,
     val appName: String,
@@ -49,6 +48,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Start service only if BOTH permissions are granted
         if (checkUsagePermission(this) && Settings.canDrawOverlays(this)) {
             val intent = Intent(this, AppLockService::class.java)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -141,6 +141,8 @@ fun AppLockScreen() {
                             AppLockItem(app = app, onToggleLock = { isLocked ->
                                 scope.launch(Dispatchers.IO) {
                                     prefs.edit().putBoolean(app.packageName, isLocked).apply()
+
+                                    // Update local state UI
                                     val newList = installedApps.toMutableList()
                                     val index = newList.indexOfFirst { it.packageName == app.packageName }
                                     if (index != -1) {
@@ -168,21 +170,19 @@ fun PatternSetupDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("Draw your new pattern below:")
                 Spacer(modifier = Modifier.height(16.dp))
-                // Reuse the PatternLockView we created in LockScreenActivity
-                // Note: In a real app, move PatternLockView to a separate file to share it.
-                // For this snippet, I'm assuming you copy PatternLockView into a shared file or redefine it here.
-                // I will redefine a simple version here for safety in this file.
-                SimplePatternSetupView(
+                
+                // This references the external file PatternLockUtils.kt
+                PatternLockView(
                     currentPattern = currentPattern,
-                    onUpdate = { if (!currentPattern.contains(it)) currentPattern = currentPattern + it },
-                    onEnd = { /* Wait for user to click Save */ }
+                    onUpdatePattern = { if (!currentPattern.contains(it)) currentPattern = currentPattern + it },
+                    onComplete = { /* Do nothing here, wait for Save button */ }
                 )
             }
         },
         confirmButton = {
             Button(onClick = {
                 if (currentPattern.size < 4) {
-                    // Too short
+                    // Optional: Show error for short pattern if desired
                 } else {
                     onSave(currentPattern.joinToString(""))
                 }
@@ -191,33 +191,13 @@ fun PatternSetupDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
             }
         },
         dismissButton = {
-            Button(onClick = { 
-                currentPattern = emptyList() // Reset
-            }) {
+            Button(onClick = { currentPattern = emptyList() }) {
                 Text("Reset")
             }
         }
     )
 }
 
-// A local copy of the view for the dialog (or move PatternLockView to a new file named PatternView.kt)
-@Composable
-fun SimplePatternSetupView(
-    currentPattern: List<Int>,
-    onUpdate: (Int) -> Unit,
-    onEnd: () -> Unit
-) {
-     // Replicating the logic briefly for the dialog
-     // In your project, put the `PatternLockView` composable in its own file and reuse it!
-     // ... (Use the same code as LockScreenActivity.PatternLockView) ...
-     // For now, I'll place a placeholder Text to remind you to extract it.
-     Text("(Copy PatternLockView here to see preview)", color = MaterialTheme.colorScheme.error)
-}
-
-// ... (Rest of your PermissionCard, AppLockItem, and Permission Functions remain unchanged) ...
-// Copy them from your previous file to complete the file.
-
-// --- Helper Functions (Same as before) ---
 @Composable
 fun PermissionRequestCard(
     hasUsage: Boolean,
@@ -233,14 +213,19 @@ fun PermissionRequestCard(
         ) {
             Text("Permissions Required", style = MaterialTheme.typography.headlineSmall)
             Spacer(modifier = Modifier.height(16.dp))
+
             if (!hasUsage) {
                 Button(onClick = onRequestUsage) { Text("1. Grant Usage Access") }
+                Text("Needed to detect running apps", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
             }
+
             if (!hasOverlay) {
                 Button(onClick = onRequestOverlay) { Text("2. Grant Overlay Permission") }
+                Text("Needed to show lock screen", style = MaterialTheme.typography.bodySmall)
                 Spacer(modifier = Modifier.height(8.dp))
             }
+
             Spacer(modifier = Modifier.height(16.dp))
             TextButton(onClick = onCheckAgain) { Text("I have granted permissions") }
         }
