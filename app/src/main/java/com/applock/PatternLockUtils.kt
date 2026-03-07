@@ -27,12 +27,12 @@ fun PatternLockView(
             .pointerInput(Unit) {
                 detectDragGestures(
                     onDragStart = { offset ->
-                        val index = getDotIndex(offset, size.width, size.height)
+                        val index = getDotIndex(offset, size.width.toFloat(), size.height.toFloat())
                         if (index != -1) onUpdatePattern(index)
                     },
                     onDragEnd = { onComplete() },
                     onDrag = { change, _ ->
-                        val index = getDotIndex(change.position, size.width, size.height)
+                        val index = getDotIndex(change.position, size.width.toFloat(), size.height.toFloat())
                         if (index != -1) onUpdatePattern(index)
                     }
                 )
