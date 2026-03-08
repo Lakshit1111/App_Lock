@@ -206,8 +206,10 @@ fun PatternSetupDialog(onDismiss: () -> Unit, onSave: (String) -> Unit) {
 fun PermissionRequestCard(
     hasUsage: Boolean,
     hasOverlay: Boolean,
+    hasAccessibility: Boolean, // 1. Added this parameter
     onRequestUsage: () -> Unit,
     onRequestOverlay: () -> Unit,
+    onRequestAccessibility: () -> Unit, // 2. Added this parameter
     onCheckAgain: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
@@ -230,6 +232,7 @@ fun PermissionRequestCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            // 3. Added the UI for the new accessibility permission
             if (!hasAccessibility) {
                 Button(onClick = onRequestAccessibility) { Text("3. Enable Accessibility Service") }
                 Text("Needed to detect when apps are opened", style = MaterialTheme.typography.bodySmall)
