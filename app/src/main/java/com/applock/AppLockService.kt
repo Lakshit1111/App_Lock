@@ -83,7 +83,12 @@ class AppLockService : AccessibilityService() {
 
     private fun showLockScreen(packageName: String) {
         val intent = Intent(this, LockScreenActivity::class.java).apply {
-            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            // Updated flags for a forceful overlay
+            addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or 
+                Intent.FLAG_ACTIVITY_CLEAR_TASK or 
+                Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS
+            )
             putExtra("locked_package", packageName)
         }
         startActivity(intent)

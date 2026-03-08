@@ -68,12 +68,13 @@ fun AppLockScreen() {
     var hasUsagePermission by remember { mutableStateOf(checkUsagePermission(context)) }
     var hasOverlayPermission by remember { mutableStateOf(Settings.canDrawOverlays(context)) }
     var showPatternSetup by remember { mutableStateOf(false) } // Setup Dialog State
+    var hasAccessibilityPermission by remember { mutableStateOf(isAccessibilityEnabled(context)) }
 
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
 
-    LaunchedEffect(hasUsagePermission, hasOverlayPermission) {
-        if (hasUsagePermission && hasOverlayPermission) {
+    LaunchedEffect(hasUsagePermission, hasOverlayPermission, hasAccessibilityPermission) {
+        if (hasUsagePermission && hasOverlayPermission && hasAccessibilityPermission) {
             installedApps = withContext(Dispatchers.IO) {
                 getInstalledApps(context, prefs)
             }
@@ -111,15 +112,18 @@ fun AppLockScreen() {
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            if (!hasUsagePermission || !hasOverlayPermission) {
+            if (!hasUsagePermission || !hasOverlayPermission || !hasAccessibilityPermission) {
                 PermissionRequestCard(
                     hasUsage = hasUsagePermission,
                     hasOverlay = hasOverlayPermission,
+                    hasAccessibility = hasAccessibilityPermission,
                     onRequestUsage = { requestUsagePermission(context) },
                     onRequestOverlay = { requestOverlayPermission(context) },
+                    onRequestAccessibility = { requestAccessibilityPermission(context) },
                     onCheckAgain = {
                         hasUsagePermission = checkUsagePermission(context)
                         hasOverlayPermission = Settings.canDrawOverlays(context)
+                        hasAccessibilityPermission = isAccessibilityEnabled(context)
                     }
                 )
             } else {
@@ -226,6 +230,12 @@ fun PermissionRequestCard(
                 Spacer(modifier = Modifier.height(8.dp))
             }
 
+            if (!hasAccessibility) {
+                Button(onClick = onRequestAccessibility) { Text("3. Enable Accessibility Service") }
+                Text("Needed to detect when apps are opened", style = MaterialTheme.typography.bodySmall)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+
             Spacer(modifier = Modifier.height(16.dp))
             TextButton(onClick = onCheckAgain) { Text("I have granted permissions") }
         }
@@ -284,4 +294,19 @@ fun getInstalledApps(context: Context, prefs: android.content.SharedPreferences)
             prefs.getBoolean(it.packageName, false)
         )
     }.sortedBy { it.appName }
+}
+
+
+fun isAccessibilityEnabled(context: Context): Boolean {
+    val enabledServices = Settings.Secure.getString(
+        context.contentResolver,
+        Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES
+    )
+    return enabledServices?.contains(context.packageName) == true
+}
+
+fun requestAccessibilityPermission(context: Context) {
+    val intent = Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS)
+    intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    context.startActivity(intent)
 }
