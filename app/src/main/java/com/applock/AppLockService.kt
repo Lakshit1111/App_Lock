@@ -37,12 +37,26 @@ class AppLockService : AccessibilityService() {
     /**
      * Reads the specific change and updates only that entry in our memory list.
      */
-    private fun updateSingleAppInCache(packageName: String) {
-        val isLocked = prefs.getBoolean(packageName, false)
-        if (isLocked) {
-            lockedAppsCache.add(packageName)
-        } else {
-            lockedAppsCache.remove(packageName)
+    // private fun updateSingleAppInCache(packageName: String) {
+    //     val isLocked = prefs.getBoolean(packageName, false)
+    //     if (isLocked) {
+    //         lockedAppsCache.add(packageName)
+    //     } else {
+    //         lockedAppsCache.remove(packageName)
+    //     }
+    // }
+
+    private fun updateSingleAppInCache(key: String) {
+        try {
+            val isLocked = prefs.getBoolean(key, false)
+            if (isLocked) {
+                lockedAppsCache.add(key)
+            } else {
+                lockedAppsCache.remove(key)
+            }
+        } catch (e: ClassCastException) {
+            // The key was not a boolean (e.g., "user_pattern" is a String).
+            // We can safely ignore this change since it's not a package name lock state.
         }
     }
 
