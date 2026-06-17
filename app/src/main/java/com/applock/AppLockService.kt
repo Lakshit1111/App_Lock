@@ -4,6 +4,8 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Handler
+import android.os.Looper
 import android.view.accessibility.AccessibilityEvent
 
 class AppLockService : AccessibilityService() {
@@ -12,12 +14,33 @@ class AppLockService : AccessibilityService() {
     
     // 1. The Cache: A list of locked apps kept in memory for instant access
     private val lockedAppsCache = mutableSetOf<String>()
-    
+
+    // Recently unlocked apps — prevents re-locking immediately after authentication
+    private val recentlyUnlocked = mutableSetOf<String>()
+
+    private val handler = Handler(Looper.getMainLooper())
+
     private lateinit var prefs: SharedPreferences
     private lateinit var prefsListener: SharedPreferences.OnSharedPreferenceChangeListener
 
+    companion object {
+        private var instance: AppLockService? = null
+
+        fun unlockApp(packageName: String) {
+            instance?.addRecentlyUnlocked(packageName)
+        }
+    }
+
+    private fun addRecentlyUnlocked(packageName: String) {
+        recentlyUnlocked.add(packageName)
+        handler.postDelayed({
+            recentlyUnlocked.remove(packageName)
+        }, 2000)
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
+        instance = this
         prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
 
         // 2. Initial Load: Read database once when service starts
@@ -82,6 +105,9 @@ class AppLockService : AccessibilityService() {
             // Prevent infinite loop by ignoring our own app
             if (packageName == this.packageName) return
 
+            // Skip if this app was just unlocked — prevent re-lock loop
+            if (recentlyUnlocked.contains(packageName)) return
+
             // Optimization: Don't re-check if we are still on the same app
             if (packageName == lastPackageName) return
 
@@ -109,7 +135,8 @@ class AppLockService : AccessibilityService() {
     }
 
     override fun onUnbind(intent: Intent?): Boolean {
-        // Clean up the listener to prevent memory leaks
+        instance = null
+        handler.removeCallbacksAndMessages(null)
         if (::prefs.isInitialized) {
             prefs.unregisterOnSharedPreferenceChangeListener(prefsListener)
         }

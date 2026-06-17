@@ -29,7 +29,10 @@ class LockScreenActivity : FragmentActivity() {
                 LockScreenContent(
                     packageName = lockedPackage,
                     activity = this,
-                    onUnlockSuccess = { finish() }
+                    onUnlockSuccess = {
+                        AppLockService.unlockApp(lockedPackage)
+                        finish()
+                    }
                 )
             }
         }
