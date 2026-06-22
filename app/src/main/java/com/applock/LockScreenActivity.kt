@@ -73,6 +73,7 @@ fun LockScreenContent(
     }
 
     BackHandler {
+        AppLockService.notifyLockScreenDismissed()
         val homeIntent = android.content.Intent(android.content.Intent.ACTION_MAIN).apply {
             addCategory(android.content.Intent.CATEGORY_HOME)
             flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK

@@ -18,6 +18,9 @@ class AppLockService : AccessibilityService() {
     // Recently unlocked apps — prevents re-locking immediately after authentication
     private val recentlyUnlocked = mutableSetOf<String>()
 
+    // Currently locked app whose lock screen is visible — prevents duplicate lock screens
+    private var lockedPackageOnScreen: String? = null
+
     private val handler = Handler(Looper.getMainLooper())
 
     private lateinit var prefs: SharedPreferences
@@ -28,6 +31,11 @@ class AppLockService : AccessibilityService() {
 
         fun unlockApp(packageName: String) {
             instance?.addRecentlyUnlocked(packageName)
+            instance?.clearLockScreen()
+        }
+
+        fun notifyLockScreenDismissed() {
+            instance?.clearLockScreen()
         }
     }
 
@@ -36,6 +44,10 @@ class AppLockService : AccessibilityService() {
         handler.postDelayed({
             recentlyUnlocked.remove(packageName)
         }, 2000)
+    }
+
+    private fun clearLockScreen() {
+        lockedPackageOnScreen = null
     }
 
     override fun onServiceConnected() {
@@ -98,12 +110,14 @@ class AppLockService : AccessibilityService() {
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // We only care if the window state changed (an app was opened/switched)
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
 
             // Prevent infinite loop by ignoring our own app
             if (packageName == this.packageName) return
+
+            // Skip if a lock screen is already showing for this package
+            if (lockedPackageOnScreen == packageName) return
 
             // Skip if this app was just unlocked — prevent re-lock loop
             if (recentlyUnlocked.contains(packageName)) return
@@ -111,12 +125,12 @@ class AppLockService : AccessibilityService() {
             // Optimization: Don't re-check if we are still on the same app
             if (packageName == lastPackageName) return
 
-            lastPackageName = packageName
-
-            // 4. The Optimized Check:
-            // We check the 'lockedAppsCache' (Memory) instead of 'prefs' (Database).
             if (lockedAppsCache.contains(packageName)) {
+                // Set lock screen state BEFORE showing it
+                lockedPackageOnScreen = packageName
                 showLockScreen(packageName)
+            } else {
+                lastPackageName = packageName
             }
         }
     }
