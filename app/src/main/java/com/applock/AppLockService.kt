@@ -8,6 +8,9 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.accessibility.AccessibilityEvent
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 class AppLockService : AccessibilityService() {
 
@@ -31,15 +34,38 @@ class AppLockService : AccessibilityService() {
         private var instance: AppLockService? = null
 
         fun unlockApp(packageName: String) {
-            Log.d("AppLockDebug", "unlockApp called for: $packageName")
+            instance?.writeLog("unlockApp called for: $packageName")
             instance?.addRecentlyUnlocked(packageName)
             instance?.clearLockScreen()
         }
 
         fun notifyLockScreenDismissed() {
-            Log.d("AppLockDebug", "notifyLockScreenDismissed called")
+            instance?.writeLog("notifyLockScreenDismissed called")
             instance?.clearLockScreen()
         }
+    }
+
+    private fun writeLog(message: String) {
+        try {
+            val logDir = getExternalFilesDir(null)
+            if (logDir != null) {
+                val logFile = File(logDir, "applock_debug.log")
+                val timestamp = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(System.currentTimeMillis())
+                logFile.appendText("$timestamp | $message\n")
+            }
+        } catch (e: Exception) {
+            Log.e("AppLockDebug", "Failed to write log", e)
+        }
+    }
+
+    private fun clearLogFile() {
+        try {
+            val logDir = getExternalFilesDir(null)
+            if (logDir != null) {
+                val logFile = File(logDir, "applock_debug.log")
+                logFile.delete()
+            }
+        } catch (e: Exception) {}
     }
 
     private fun addRecentlyUnlocked(packageName: String) {
@@ -56,6 +82,8 @@ class AppLockService : AccessibilityService() {
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
+        clearLogFile()
+        writeLog("Service connected")
         prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
 
         // 2. Initial Load: Read database once when service starts
@@ -116,38 +144,34 @@ class AppLockService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
 
-            Log.d("AppLockDebug", "event: pkg=$packageName | lastPkg=$lastPackageName | onScreen=$lockedPackageOnScreen | recentlyUnlocked=$recentlyUnlocked | inCache=${lockedAppsCache.contains(packageName)}")
+            writeLog("event: pkg=$packageName | lastPkg=$lastPackageName | onScreen=$lockedPackageOnScreen | recentlyUnlocked=$recentlyUnlocked | inCache=${lockedAppsCache.contains(packageName)}")
 
-            // Prevent infinite loop by ignoring our own app
             if (packageName == this.packageName) {
-                Log.d("AppLockDebug", "-> skipped: own package")
+                writeLog("-> skipped: own package")
                 return
             }
 
-            // Skip if a lock screen is already showing for this package
             if (lockedPackageOnScreen == packageName) {
-                Log.d("AppLockDebug", "-> skipped: lock screen already showing")
+                writeLog("-> skipped: lock screen already showing")
                 return
             }
 
-            // Skip if this app was just unlocked — prevent re-lock loop
             if (recentlyUnlocked.contains(packageName)) {
-                Log.d("AppLockDebug", "-> skipped: recently unlocked")
+                writeLog("-> skipped: recently unlocked")
                 return
             }
 
-            // Optimization: Don't re-check if we are still on the same app
             if (packageName == lastPackageName) {
-                Log.d("AppLockDebug", "-> skipped: same as last package")
+                writeLog("-> skipped: same as last package")
                 return
             }
 
             if (lockedAppsCache.contains(packageName)) {
-                Log.d("AppLockDebug", "-> LOCKED: showing lock screen for $packageName")
+                writeLog("-> LOCKED: showing lock screen for $packageName")
                 lockedPackageOnScreen = packageName
                 showLockScreen(packageName)
             } else {
-                Log.d("AppLockDebug", "-> not locked, updating lastPackageName")
+                writeLog("-> not locked, updating lastPackageName")
                 lastPackageName = packageName
             }
         }
