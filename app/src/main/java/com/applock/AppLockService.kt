@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 
 class AppLockService : AccessibilityService() {
@@ -30,11 +31,13 @@ class AppLockService : AccessibilityService() {
         private var instance: AppLockService? = null
 
         fun unlockApp(packageName: String) {
+            Log.d("AppLockDebug", "unlockApp called for: $packageName")
             instance?.addRecentlyUnlocked(packageName)
             instance?.clearLockScreen()
         }
 
         fun notifyLockScreenDismissed() {
+            Log.d("AppLockDebug", "notifyLockScreenDismissed called")
             instance?.clearLockScreen()
         }
     }
@@ -113,23 +116,38 @@ class AppLockService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
 
+            Log.d("AppLockDebug", "event: pkg=$packageName | lastPkg=$lastPackageName | onScreen=$lockedPackageOnScreen | recentlyUnlocked=$recentlyUnlocked | inCache=${lockedAppsCache.contains(packageName)}")
+
             // Prevent infinite loop by ignoring our own app
-            if (packageName == this.packageName) return
+            if (packageName == this.packageName) {
+                Log.d("AppLockDebug", "-> skipped: own package")
+                return
+            }
 
             // Skip if a lock screen is already showing for this package
-            if (lockedPackageOnScreen == packageName) return
+            if (lockedPackageOnScreen == packageName) {
+                Log.d("AppLockDebug", "-> skipped: lock screen already showing")
+                return
+            }
 
             // Skip if this app was just unlocked — prevent re-lock loop
-            if (recentlyUnlocked.contains(packageName)) return
+            if (recentlyUnlocked.contains(packageName)) {
+                Log.d("AppLockDebug", "-> skipped: recently unlocked")
+                return
+            }
 
             // Optimization: Don't re-check if we are still on the same app
-            if (packageName == lastPackageName) return
+            if (packageName == lastPackageName) {
+                Log.d("AppLockDebug", "-> skipped: same as last package")
+                return
+            }
 
             if (lockedAppsCache.contains(packageName)) {
-                // Set lock screen state BEFORE showing it
+                Log.d("AppLockDebug", "-> LOCKED: showing lock screen for $packageName")
                 lockedPackageOnScreen = packageName
                 showLockScreen(packageName)
             } else {
+                Log.d("AppLockDebug", "-> not locked, updating lastPackageName")
                 lastPackageName = packageName
             }
         }
