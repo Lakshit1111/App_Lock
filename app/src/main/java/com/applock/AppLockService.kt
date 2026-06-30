@@ -4,6 +4,7 @@ import android.accessibilityservice.AccessibilityService
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
@@ -24,6 +25,9 @@ class AppLockService : AccessibilityService() {
 
     // Currently locked app whose lock screen is visible — prevents duplicate lock screens
     private var lockedPackageOnScreen: String? = null
+
+    // Whitelist of real user-facing apps (those with a launcher intent)
+    private val userAppsCache = mutableSetOf<String>()
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -79,21 +83,17 @@ class AppLockService : AccessibilityService() {
         lockedPackageOnScreen = null
     }
 
-    private fun isSystemPackage(packageName: String): Boolean {
-        return packageName.startsWith("com.android.systemui") ||
-            packageName.startsWith("com.android.permissioncontroller") ||
-            packageName.startsWith("com.google.android.permissioncontroller") ||
-            packageName.startsWith("com.android.packageinstaller") ||
-            packageName.startsWith("com.miui") ||
-            packageName.startsWith("com.samsung") ||
-            packageName.startsWith("com.huawei") ||
-            packageName.startsWith("com.oppo") ||
-            packageName.startsWith("com.coloros") ||
-            packageName.endsWith(".ime") ||
-            packageName.endsWith(".inputmethod") ||
-            packageName.contains(".inputmethod.") ||
-            packageName == "android" ||
-            packageName == "com.android.settings"
+    private fun updateUserAppsCache() {
+        userAppsCache.clear()
+        val pm = packageManager
+        val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+        for (app in apps) {
+            if (pm.getLaunchIntentForPackage(app.packageName) != null &&
+                app.packageName != this.packageName) {
+                userAppsCache.add(app.packageName)
+            }
+        }
+        writeLog("User apps cache: ${userAppsCache.size} apps")
     }
 
     override fun onServiceConnected() {
@@ -103,8 +103,8 @@ class AppLockService : AccessibilityService() {
         writeLog("Service connected")
         prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
 
-        // 2. Initial Load: Read database once when service starts
         updateCompleteCache()
+        updateUserAppsCache()
 
         // 3. The Notification Listener: 
         // When you change settings in MainActivity, this listener fires specifically 
@@ -164,9 +164,9 @@ class AppLockService : AccessibilityService() {
             // Prevent infinite loop by ignoring our own app
             if (packageName == this.packageName) return
 
-            // Skip system UI / input methods / OEM system packages entirely
-            // These cause noise and reset state — only real app switches matter
-            if (isSystemPackage(packageName)) return
+            // Only process real user-facing apps (has a launcher icon)
+            // This filters out system UI, input methods, dialogs, toasts, etc.
+            if (!userAppsCache.contains(packageName)) return
 
             writeLog("event: pkg=$packageName | lastPkg=$lastPackageName | onScreen=$lockedPackageOnScreen | recentlyUnlocked=$recentlyUnlocked | inCache=${lockedAppsCache.contains(packageName)}")
 
