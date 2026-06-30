@@ -79,6 +79,23 @@ class AppLockService : AccessibilityService() {
         lockedPackageOnScreen = null
     }
 
+    private fun isSystemPackage(packageName: String): Boolean {
+        return packageName.startsWith("com.android.systemui") ||
+            packageName.startsWith("com.android.permissioncontroller") ||
+            packageName.startsWith("com.google.android.permissioncontroller") ||
+            packageName.startsWith("com.android.packageinstaller") ||
+            packageName.startsWith("com.miui") ||
+            packageName.startsWith("com.samsung") ||
+            packageName.startsWith("com.huawei") ||
+            packageName.startsWith("com.oppo") ||
+            packageName.startsWith("com.coloros") ||
+            packageName.endsWith(".ime") ||
+            packageName.endsWith(".inputmethod") ||
+            packageName.contains(".inputmethod.") ||
+            packageName == "android" ||
+            packageName == "com.android.settings"
+    }
+
     override fun onServiceConnected() {
         super.onServiceConnected()
         instance = this
@@ -144,12 +161,14 @@ class AppLockService : AccessibilityService() {
         if (event?.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val packageName = event.packageName?.toString() ?: return
 
-            writeLog("event: pkg=$packageName | lastPkg=$lastPackageName | onScreen=$lockedPackageOnScreen | recentlyUnlocked=$recentlyUnlocked | inCache=${lockedAppsCache.contains(packageName)}")
+            // Prevent infinite loop by ignoring our own app
+            if (packageName == this.packageName) return
 
-            if (packageName == this.packageName) {
-                writeLog("-> skipped: own package")
-                return
-            }
+            // Skip system UI / input methods / OEM system packages entirely
+            // These cause noise and reset state — only real app switches matter
+            if (isSystemPackage(packageName)) return
+
+            writeLog("event: pkg=$packageName | lastPkg=$lastPackageName | onScreen=$lockedPackageOnScreen | recentlyUnlocked=$recentlyUnlocked | inCache=${lockedAppsCache.contains(packageName)}")
 
             if (lockedPackageOnScreen == packageName) {
                 writeLog("-> skipped: lock screen already showing")
