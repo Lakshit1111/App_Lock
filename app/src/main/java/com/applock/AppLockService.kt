@@ -185,13 +185,14 @@ class AppLockService : AccessibilityService() {
                 return
             }
 
+            lastPackageName = packageName
+
             if (lockedAppsCache.contains(packageName)) {
                 writeLog("-> LOCKED: showing lock screen for $packageName")
                 lockedPackageOnScreen = packageName
                 showLockScreen(packageName)
             } else {
-                writeLog("-> not locked, updating lastPackageName")
-                lastPackageName = packageName
+                writeLog("-> not locked")
             }
         }
     }
