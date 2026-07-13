@@ -27,7 +27,7 @@ jobs:
 
     - name: Decode release keystore
       run: |
-        echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > $HOME/applock-release.jks
+        printf '%s' "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > $HOME/applock-release.jks
         echo "RELEASE_KEYSTORE_PATH=$HOME/applock-release.jks" >> $GITHUB_ENV
         echo "RELEASE_KEYSTORE_PASSWORD=${{ secrets.RELEASE_KEYSTORE_PASSWORD }}" >> $GITHUB_ENV
         echo "RELEASE_KEY_ALIAS=${{ secrets.RELEASE_KEY_ALIAS }}" >> $GITHUB_ENV
