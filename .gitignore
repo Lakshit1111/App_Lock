@@ -1,0 +1,14 @@
+# Build outputs
+app/build/
+build/
+.gradle/
+
+# Local keystore (never commit signing keys)
+app/keystore/
+*.jks
+*.keystore
+
+# IDE
+.idea/
+*.iml
+local.properties
