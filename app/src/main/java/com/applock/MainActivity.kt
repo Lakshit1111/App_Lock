@@ -9,7 +9,6 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.widget.Toast
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.*
@@ -25,6 +24,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
+import androidx.fragment.app.FragmentActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -36,18 +36,36 @@ data class AppInfo(
     var isLocked: Boolean = false
 )
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
+
+    var isSelfLocked = mutableStateOf(false)
+    private var pendingPermissionFlow = false
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             MaterialTheme {
-                AppLockScreen()
+                AppLockScreen(
+                    isSelfLocked = isSelfLocked.value,
+                    activity = this,
+                    onSelfUnlock = {
+                        getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
+                            .edit().putBoolean("self_locked", false).apply()
+                        isSelfLocked.value = false
+                    },
+                    markPendingPermissionFlow = { pendingPermissionFlow = true }
+                )
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
+        pendingPermissionFlow = false
+        val prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("self_locked", false)) {
+            isSelfLocked.value = true
+        }
         // Start service only if BOTH permissions are granted
         if (checkUsagePermission(this) && Settings.canDrawOverlays(this)) {
             val intent = Intent(this, AppLockService::class.java)
@@ -58,11 +76,25 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        if (pendingPermissionFlow || isFinishing) return
+        val prefs = getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
+        if (prefs.getBoolean("lock_self", false)) {
+            prefs.edit().putBoolean("self_locked", true).apply()
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun AppLockScreen() {
+fun AppLockScreen(
+    isSelfLocked: Boolean,
+    activity: FragmentActivity,
+    onSelfUnlock: () -> Unit,
+    markPendingPermissionFlow: () -> Unit
+) {
     val context = LocalContext.current
     var installedApps by remember { mutableStateOf<List<AppInfo>>(emptyList()) }
     var hasUsagePermission by remember { mutableStateOf(checkUsagePermission(context)) }
@@ -72,6 +104,12 @@ fun AppLockScreen() {
 
     val scope = rememberCoroutineScope()
     val prefs = context.getSharedPreferences("app_lock_prefs", Context.MODE_PRIVATE)
+
+    // Self-lock overlay: shown when the app itself is locked
+    if (isSelfLocked) {
+        SelfLockScreen(activity = activity, onUnlockSuccess = onSelfUnlock)
+        return
+    }
 
     LaunchedEffect(hasUsagePermission, hasOverlayPermission, hasAccessibilityPermission) {
         if (hasUsagePermission && hasOverlayPermission && hasAccessibilityPermission) {
@@ -91,6 +129,10 @@ fun AppLockScreen() {
             }
         )
     }
+
+    val requestUsage = { markPendingPermissionFlow(); requestUsagePermission(context) }
+    val requestOverlay = { markPendingPermissionFlow(); requestOverlayPermission(context) }
+    val requestAccessibility = { markPendingPermissionFlow(); requestAccessibilityPermission(context) }
 
     Scaffold(
         topBar = {
@@ -117,9 +159,9 @@ fun AppLockScreen() {
                     hasUsage = hasUsagePermission,
                     hasOverlay = hasOverlayPermission,
                     hasAccessibility = hasAccessibilityPermission,
-                    onRequestUsage = { requestUsagePermission(context) },
-                    onRequestOverlay = { requestOverlayPermission(context) },
-                    onRequestAccessibility = { requestAccessibilityPermission(context) },
+                    onRequestUsage = requestUsage,
+                    onRequestOverlay = requestOverlay,
+                    onRequestAccessibility = requestAccessibility,
                     onCheckAgain = {
                         hasUsagePermission = checkUsagePermission(context)
                         hasOverlayPermission = Settings.canDrawOverlays(context)
@@ -143,8 +185,14 @@ fun AppLockScreen() {
                         }
                         items(installedApps) { app ->
                             AppLockItem(app = app, onToggleLock = { isLocked ->
+                                // Self-lock uses the 'lock_self' key instead of the package name
+                                val key = if (app.packageName == context.packageName) {
+                                    "lock_self"
+                                } else {
+                                    app.packageName
+                                }
                                 scope.launch(Dispatchers.IO) {
-                                    prefs.edit().putBoolean(app.packageName, isLocked).apply()
+                                    prefs.edit().putBoolean(key, isLocked).apply()
 
                                     // Update local state UI
                                     val newList = installedApps.toMutableList()
@@ -161,6 +209,15 @@ fun AppLockScreen() {
             }
         }
     }
+}
+
+@Composable
+fun SelfLockScreen(activity: FragmentActivity, onUnlockSuccess: () -> Unit) {
+    LockScreenContent(
+        packageName = activity.packageName,
+        activity = activity,
+        onUnlockSuccess = onUnlockSuccess
+    )
 }
 
 @Composable
@@ -287,7 +344,7 @@ fun requestOverlayPermission(context: Context) {
 fun getInstalledApps(context: Context, prefs: android.content.SharedPreferences): List<AppInfo> {
     val pm = context.packageManager
     val apps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-    return apps.filter {
+    val otherApps = apps.filter {
         pm.getLaunchIntentForPackage(it.packageName) != null && it.packageName != context.packageName
     }.map {
         AppInfo(
@@ -297,6 +354,16 @@ fun getInstalledApps(context: Context, prefs: android.content.SharedPreferences)
             prefs.getBoolean(it.packageName, false)
         )
     }.sortedBy { it.appName }
+
+    // Prepend a pinned self entry so the user can toggle locking AppLock itself.
+    val selfApp = pm.getApplicationInfo(context.packageName, PackageManager.GET_META_DATA)
+    val selfInfo = AppInfo(
+        context.packageName,
+        "App Lock",
+        pm.getApplicationIcon(selfApp).toBitmap(),
+        prefs.getBoolean("lock_self", false)
+    )
+    return listOf(selfInfo) + otherApps
 }
 
 
